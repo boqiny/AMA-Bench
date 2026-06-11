@@ -9,6 +9,7 @@ from tqdm import tqdm
 from src.model_client import ModelClient
 from src.method_register import get_method, list_methods
 from src.method.base_method import BaseMethod
+from src.method.agent_method import AgentHarnessMethod
 from utils.extract_final_answer import extract_final_answer
 from utils.embedding import EmbeddingEngine
 
@@ -231,6 +232,35 @@ class MemoryQAInterface:
 
         return answer_list
 
+    def _answer_episode_with_harness(
+        self, task: str, trajectory: List[Dict[str, Any]], qa_pairs: List[Dict[str, Any]]
+    ) -> List[str]:
+        """Drive an agent harness (codex, claude-code, etc.) over the raw trajectory.
+
+        The harness reads the raw trajectory itself and answers all questions in
+        one agentic session; here we just parse the returned Answer[i] block (same
+        format as answer_all_questions_batch).
+        """
+        questions = [qa.get("question", "") for qa in qa_pairs]
+        raw = self.method.run_episode(
+            trajectory=trajectory,
+            task=task,
+            questions=questions,
+            mcq_mode=(self.subset == "mcq"),
+        )
+        mcq_mode = (self.subset == "mcq")
+        answer_list = []
+        for i in range(len(questions)):
+            pattern = rf"Answer\[{i+1}\]:\s*(.+?)(?=Answer\[{i+2}\]:|$)"
+            match = re.search(pattern, raw, re.DOTALL)
+            if match:
+                answer_text = match.group(1).strip()
+                final_answer = extract_final_answer(f"###Answer: {answer_text}", mcq_mode=mcq_mode)
+            else:
+                final_answer = extract_final_answer(raw, mcq_mode=mcq_mode)
+            answer_list.append(final_answer)
+        return answer_list
+
     def process_episode(self, episode_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Process a single episode: build memory and answer all questions.
@@ -248,6 +278,15 @@ class MemoryQAInterface:
         task = episode_data.get("task", "")
         trajectory = episode_data.get("trajectory", [])
         qa_pairs = episode_data.get("qa_pairs", [])
+
+        if isinstance(self.method, AgentHarnessMethod):
+            answer_list = self._answer_episode_with_harness(task, trajectory, qa_pairs)
+            return {
+                'episode_id': episode_id,
+                'answer_list': answer_list,
+                'reasoning_trace': "",
+            }
+
         memory = self.memory_construction(trajectory, task)
         if self.method_name == "longcontext":
             # Batch answering: answer all questions in a single call
