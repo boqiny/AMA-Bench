@@ -28,3 +28,4 @@ skills/
 configs/
 skills/
 configs/qwen3-32B.yaml
+.env
