@@ -133,6 +133,23 @@ python src/run.py \
   --judge-config configs/llm_judge.yaml
 ```
 
+### 🤖 Run a tool-using agent (`codex` / `claude_code`)
+
+You can also evaluate an external coding agent that reads the trajectory with its own tools (grep/jq/python over many turns) and answers a whole episode in one session:
+
+```bash
+python src/run.py \
+  --llm-server api \
+  --llm-config configs/codex_gpt5_mini.yaml \
+  --judge-config configs/llm_judge_gpt5_mini.yaml \
+  --subset openend \
+  --method codex \
+  --episode-ids 30,31,32,33,34,35,36,37,38,39
+# swap in --method claude_code to run Claude Code instead
+```
+
+The agent gets the full, untruncated trajectory as `trajectory.jsonl`. `codex` uses an OpenAI-compatible key (`OPENAI_API_KEY`, optional `OPENAI_BASE_URL`); `claude_code` uses your local Claude Code login (or the standard `ANTHROPIC_*` env).
+
 ---
 
 ## 📊 Evaluation
@@ -327,6 +344,21 @@ class MyMethod(BaseMethod):
 ```
 
 Then register it in [src/method_register.py](src/method_register.py) to make it available via `--method`.
+
+### Add a tool-using agent harness
+
+If your method is an external agent that reads the trajectory with its own tools (instead of the two-stage build/retrieve flow), subclass `AgentHarnessMethod`. It is driven once per episode with the raw trajectory and all questions, and returns the `Answer[i]` block:
+
+```python
+from src.method.agent_method import AgentHarnessMethod
+
+class MyAgentMethod(AgentHarnessMethod):
+    def run_episode(self, *, trajectory, task, questions, mcq_mode) -> str:
+        # run your agent over `trajectory`, return the "Answer[i]: ..." block
+        ...
+```
+
+Register it the same way (`"my_agent": ("src.method.agent_method", "MyAgentMethod")`) and `--method my_agent` just works — no change to the eval loop. See `codex` / `claude_code` for working examples.
 
 ---
 
